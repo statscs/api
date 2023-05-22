@@ -1,0 +1,1213 @@
+Tastytrade API Overview
+How to get started with Tastytrade's API
+
+So you are ready to start using Tastytrade's API? First, you’ll want to create a demo account in our certification environment using the Sandbox page on the left navigation. We have a whole working test environment that you will be able to build your application and test in prior to hooking up your production account.
+
+Running into issues or have questions?
+
+We have a dedicated Service Desk ready to assist you. Please submit an email to api.support@tastytrade.com in order to create a ticket, and a member of our team will be in touch.
+
+API Conventions (REST / JSON)
+Auth Patterns (Token, session lifetime)
+Create a Session
+POST /sessions
+Form Data
+Response
+Remember token
+Form Data
+Two Factor Authentication
+Validate a Session
+POST /sessions/validate
+Headers
+Response
+Destroy Session (Log Out)
+DELETE /sessions
+Headers
+Streaming Account Data
+Hosts
+Available Actions
+Send Subscription Message(s)
+Tastytrade Symbology
+Error Codes
+Basic API Usage
+User Management
+Password Reset
+Customer Account Information
+GET /customers/me/accounts
+Response
+Streaming Market Data
+GET /quote-streamer-tokens
+Response
+DXFeed Streamer
+DXFeed Websocket Connection Example
+Position retrieval (View all Current Account Positions)
+GET /accounts/:account-number/positions
+Response
+Balance retrieval
+GET /accounts/:account-number/balances
+Response
+Watchlists
+Public Watchlists
+GET /public-watchlists
+Response
+Instruments
+Equity Options
+Future options
+Order Management
+Order Statuses
+Live Orders
+GET /accounts/:account-number/orders/live
+Response
+Dry Run
+POST /accounts/:account-number/orders/dry-run
+Body
+Response
+Send
+POST /accounts/:account-number/orders
+Body
+Response
+Cancel Replace
+PUT /accounts/:account-number/orders/:id
+Body
+Example Order Requests
+Transaction History
+GET /accounts/:account-number/transactions
+Response
+API Conventions (REST / JSON)
+All requests must include a User-Agent header or they will be rejected.
+
+Content-Type and Accept headers should be application/json as requests and responses will always be in json format.
+
+Json keys are dasherized in the request and response body. For example:
+
+{
+  "this-key-is-dasherized": "value goes here"
+}
+Response json will have a data key and a context key. Multi-object responses will have an items array nested inside the data object:
+
+  {
+    "data": {
+      "items": [
+        /* position objects listed here */
+      ]
+    },
+    "context": "/accounts/{account_number}/positions"
+  }
+Error responses will include an error object with code and message properties:
+
+{
+  "error": {
+    "code": "not_permitted",
+    "message": "User not permitted access"
+  }
+}
+When making requests, parameters can be included in the query for GET requests. For all other requests, use a json body. Array parameters in GET requests will look like this: GET /accounts/{account_number}/positions?underlying-symbol[]=AAPL&underlying-symbol[]=FB
+
+Example POST body:
+
+//POST /accounts/{account_number}/orders
+{
+  "underlying-symbol": "AAPL"
+  // other params here
+}
+Auth Patterns (Token, session lifetime)
+All requests to the Tastytrade API are authenticated with a bearer token representing a single session initiated by a given customer. An API client is responsible for securely collecting a login and password from a customer and retrieving a bearer token from POST /sessions. Once the bearer token has been successfully retrieved, it must be passed in the Authorization header on all subsequent requests from the customer for the duration of their session.
+
+The Authorization header's value should be the full session-token provided by the TW API with no additional text. Users should not include the word Bearer in the header value.
+
+For development purposes, please rely on validating a session with the POST /sessions/validate.
+
+A session and its representative token are valid for 24 hours or until it is invalidated at the customer's request with a request to DELETE /sessions.
+
+Examples in this section explicitly include the Authorization header for clarity. Subsequent examples for other portions of the API outside of authentication in this document will omit it.
+
+There is currently no session extension beyond 24 hours. Your client application should anticipate that a session token will expire at some point and either:
+
+Include a workflow for the customer to provide their credentials and log back in by creating a new session.
+Make use of remember tokens for creating a new session.
+Your client application should not retain a server-side copy of customer credentials.
+
+Create a Session
+POST /sessions
+FORM DATA
+Key	Required or Optional	Notes
+login	Required	can be username or email
+password	Required	password set on user creation
+remember-me	Optional	generates a remember token
+RESPONSE
+{
+    "data": {
+        "user": {
+            "email": "johndoe@tastytrade.com",
+            "username": "johndoe",
+            "external-id": "U0000085345"
+        },
+        "session-token": "YkF_8uB6tiiGKF2hNRZ4QVs6gLr-d6DMn-Hovg9FrU9-8pCJLCnu8A+C",
+        "remember-token": "j69DQ_4p75bzWGYPl_utuxfIbVy1auCj8M8AEYL4BddVO3Pp3sDakA"
+},
+    "context": "/sessions"
+}
+session-token is the bearer token to be set in the Authorization header on all subsequent requests.
+
+Invalidating this session token will also invalidate the remember token.
+
+Remember Token
+A valid remember token can be used in place of password to create a new session. Remember tokens are one-time use and are valid for 28 days.
+
+All sessions and remember tokens are invalidated when a user resets their password.
+
+FORM DATA
+Key	Required or Optional	Notes
+login	Required	can be username or email
+remember-token	Required	remember token generated from a previous login
+remember-me	Optional	generates a new remember token
+The response is identical to a password login response. The session-token can be used on all subsequent requests in the Authorization header.
+
+The session created is still only valid for 24 hours.
+
+Two Factor authentication
+Some api requests may require a two factor authentication (2FA) code. A 2FA code is included in the request via a custom header named X-Tastyworks-OTP.
+
+Accounts can enable 2FA through the Tastytrade account management site. 2FA codes are obtained via something like an authenticator app or a text message. These codes are one-time use only.
+
+For example, assuming you have enabled 2FA for login, your request would look something like this:
+
+curl -X POST https://api.cert.tastyworks.com/sessions -H "X-Tastyworks-OTP: 123456" -H "Content-Type: application/json" -d '{ "login": "myusername", "password": "mypassword" }'
+If you leave out the 2FA code or submit an invalid code, you will get an http 401 response like this:
+
+RESPONSE
+{
+    "error": {
+        "code": "invalid_credentials",
+        "message": "You must provide a valid two factor code."
+    }
+}
+Validate a Session
+POST /sessions/validate
+HEADERS
+Key	Required or Optional	Notes
+Authorization	required	session-token
+This request requires no body
+
+RESPONSE
+{
+    "data": {
+        "email": "johndoe@tastytrade.com",
+        "username": "johndoe",
+        "external-id": "U0000085345",
+        "id": 1068
+    },
+    "context": "/sessions/validate"
+}
+Destroy Session (Log Out)
+DELETE /sessions
+HEADERS
+Key	Required or Optional	Notes
+Authorization	required	session-token
+This request requires no body
+
+Returns a '204 No Content' on successful destruction of a Sesssion
+
+Streaming Account Data
+The Tastytrade API utilizes a websocket for publishing one-directional notifications from the API layer out to trading client applications. In general, these are notifications about state changes to an order that the client has previously created (routed, filled, cancelled), updates to account positions, or updates to the account's balances. The notifications also include state changes to additional non-account associated data such as updates to public watchlists and quote alert triggers.
+
+All messages which are published via the streamer use the same json object representations as elsewhere in the API. Streamer messages always contain a full object representation, not a partial or a differential update.
+
+A streamer connection should be started immediately after the initial representation of an account (balances, orders, positions, watchlists, and quote alerts) has been retrieved by a trading client application.
+
+Once an active streamer connection has been established, the client should send heartbeat messages to the TW server periodically (15s - 1m interval) to ensure that it remains connected and to detect streamer connection drops.
+
+Further detail on message sequence numbers to be added. When a disconnect is detected, the client application should attempt to reconnect and only request a full refresh of the account if the sequence number indicates a gap in published messages.
+
+You need to send an auth-token with every request made to the websocket server. This is your Tastytrade session-token string from the POST /sessions response.
+
+Hosts
+Certification : wss://streamer.cert.tastyworks.com
+
+Production: wss://streamer.tastyworks.com
+
+Available Actions
+heartbeat
+
+not subscribed to, instead a signal is sent to the streamer server to prevent the socket connection from being considered "stale"
+when sending this message, value is blank
+heartbeat messages should be sent at regular 5-10 seconds intervals
+connect
+
+This is identical to account-subscribe below. However, account-subscribe may be deprecated in the future, so sending connect is preferred.
+account-subscribe
+
+subscribes to account level updates (balances, orders, positions)
+when sending this message, value is an array of account numbers, i.e. "value": ["5WTxxxxx", "5WTyyyyy", "5WTzzzzz"]
+public-watchlists-subscribe
+
+although this subscribes to public watchlist updates, an auth token is still required
+when sending this message, value is blank
+quote-alerts-subscribe
+
+subscribes to quote alert messages about alerts the user has previously configured via a POST request to the /quote-alerts endpoint
+when sending this message, value is blank
+important note: quote alerts exist at a user level, and not an account level
+user-message-subscribe
+
+subscribes to user-level messages like new account created.
+when sending this message, value is the user's external-id returned in the POST /sessions response.
+Open a websocket using websocket-url and whatever websocket library you prefer. Once the websocket is opened, you can begin sending heartbeats and subscription messages.
+
+Send Subscription Message(s)
+BODY
+{
+  "auth-token": "<string>", // `session-token` value from session creation response
+  "action": "<action>", // one of the available actions above
+  "value": "<string>" // Optional. Depends on the message action being sent (see available actions above)
+}
+Tastytrade Symbology
+Equities
+Equity symbols contain only alphanumeric characters (A-Z, 0-9) with an occasional /. A few examples: AAPL BRK/A
+
+Equity Options
+Tastytrade uses the same conventions as the OCC for equity option symbols. In short, there are 4 pieces that make up an equity option symbol:
+
+Root symbol - 6 alphanumeric digits with whitespace padding.
+AAPL  
+FB    
+BRK/A 
+Expiration date - 6 numeric digits with format yymmdd.
+Option type - P or C
+Strike price - 8 numeric digits front-padded with 0s. No decimals. Multiply strike by 1000.
+64.0 strike: 00064000
+1050.55 strike: 01050550
+0.50 strike: 00000500
+Example equity option symbols:
+
+AAPL June 17, 2022 150 Put: AAPL 220617P00150000
+
+SPY Nov 18, 2022 400 Call: SPY 221118C00400000
+
+SPX May 20, 2022 4025 Call: SPXW 220520C04025000
+
+Futures
+Futures symbols always start with a slash followed by the contract code. The contract code consists of 3 things: the product code (A-Z), the month code, and a 1-2 digit number for the year. For a full list of futures products that we support, you can hit GET /instruments/future-products. Each item in the response has a code, which is the product code.
+
+E-mini S&P 500 December 2022: /ESZ2
+
+Crude Oil December 2022: /CLZ2
+
+CBOE Volatility Index November 2022: /VXX22
+
+You can find a list of all month codes here.
+
+Future Options
+Future options are different from equity options in that each future option expiration series has a unique product code. For example, monthly CL future options have a product code LO. Weekly CL options have product codes LO1, LO2, LO3, LO4, and LO5 where LO1 is the first Friday of the month, LO2 is the second Friday of the month, etc.
+
+Other future products may have weekly options for any day of the week with their own set of option product codes. For example, ES has weekly Monday options with product codes E1A, E2A, E3A, E4A, E5A.
+
+Both the future product code and the future option product code will be present in a future option symbol. The future option symbol will always start with a ./, followed by the future contract code, the option contract code, the expiration date, option type (C/P), and strike price.
+
+./CLZ2 LO1X2 221104C91 - LO1X2 means it's a November weekly option product. CLZ2 means this option settles into the December CL future contract, which expires 2022-11-21. The 221104C91 means it's a Call option at the 91 strike expiring 2022-11-04.
+
+./ESZ2 E1AZ2 221205P3720 - The option contract code is E1AZ2. Future contract code is ESZ2. The option product code is E1A, which is a weekly Monday product. So this is a 2022-12-05 Put at the 3720 strike which settles into the December ES Future contract.
+
+For a full list of future option products that we support, you can hit GET /instruments/future-option-products. Each item in the response has a code, which is the product code.
+
+Cryptocurrencies
+Cryptocurrency symbols can be found via GET /instruments/cryptocurrencies in the symbol field of the response data. Some examples:
+
+BCH/USD - Bitcoin cash
+
+BTC/USD - Bitcoin
+
+Error Codes
+400 - Invalid request. Often indicates that your request body has missing or invalid parameters.
+
+401 - Authorization token has expired or is invalid. Also indicates an invalid username/password when logging in.
+
+403 - User is not authorized to access this resource. This may occur when a customer tries to access data for an account belonging to a different customer, for example.
+
+404 - Endpoint or resource not found. This may occur when attempting to fetch data that does not exist (a specific order, for example).
+
+500 - Indicates an issue with Tastytrade's servers. Returns a support identifier that our team can use to track down the issue.
+
+Basic API Usage
+User Management
+Password Reset
+To request a password reset email:
+
+curl -X POST https://api.cert.tastyworks.com/password/reset -d '{ "email": "youremail@email.com" }' -H 'Content-Type: application/json'
+This will send you an email with a Change my password link. Again, since the certification environment is headless, you'll need to get your password reset token directly from the Change my password link in the email and include it in your POST /password request:
+
+curl -X POST https://api.cert.tastyworks.com/password -d '{ "password": "newpassword", "password-confirmation": "newpassword", "reset-password-token": "token from email link" }' -H 'Content-Type: application/json'
+Customer Account Information
+GET /customers/me/accounts
+After a successful authentication request, the first thing a client application should do is to retrieve the list of accounts that this customer has ownership of, limited trading authority or read-only access to. This endpoint returns a list of such accounts for the customer (user) identified by the supplied session token.
+
+RESPONSE
+{
+    "data": {
+        "items": [
+            {
+                "account": {
+                    "account-number": "5WT0001",
+                    "external-id": "A0000196557",
+                    "opened-at": "2019-03-14T15:39:31.265+00:00",
+                    "nickname": "Individual",
+                    "account-type-name": "Individual",
+                    "day-trader-status": false,
+                    "is-firm-error": false,
+                    "is-firm-proprietary": false,
+                    "is-test-drive": true,
+                    "margin-or-cash": "Cash",
+                    "is-foreign": false,
+                    "funding-date": "2019-03-15"
+                },
+                "authority-level": "owner"
+            },
+            {
+                "account": {
+                    "account-number": "5WT0002",
+                    "external-id": "A0000085347",
+                    "opened-at": "2017-03-16T18:35:43.649+00:00",
+                    "nickname": "Individual",
+                    "account-type-name": "Individual",
+                    "day-trader-status": false,
+                    "is-firm-error": true,
+                    "is-firm-proprietary": false,
+                    "is-test-drive": false,
+                    "margin-or-cash": "Margin",
+                    "is-foreign": false,
+                    "funding-date": "2017-04-26",
+                    "investment-objective": "SPECULATION"
+                },
+                "authority-level": "owner"
+            }
+        ]
+    },
+    "context": "/customers/me/accounts"
+}
+Streaming Market Data
+The process to subscribe to streaming market events has two parts.
+
+A trading client application must request a Quote Streamer Token from the TW API. This token is unique to the Customer (User) identified by the session token presented on the request. It's used to identify the customer to TW's quote provider, DXFeed.
+Using the quote streamer token, clients may fetch market events from DXFeed (see DXFeed Streamer section below).
+GET /quote-streamer-tokens
+RESPONSE
+{
+    "data": {
+        "token": "<redacted>",
+        "streamer-url": "tasty.dxfeed.com:7301",
+        "websocket-url": "https://tasty.dxfeed.com/live",
+        "level": "live"
+    },
+    "context": "/quote-streamer-tokens"
+}
+Please note: The websocket-url is the url to use when connecting to our market data provider. Per their documentation, you need to append /cometd to the end of that url when connecting. The full url will look like: https://tasty.dxfeed.com/live/cometd. See the DXFeed Streamer section below for an example of opening a connection.
+
+DXFeed Streamer
+Your quote streamer token gives you access to DXFeed's Profile, Quote, Summary, and Trade market events as well as Greeks for options.
+
+To receive live market event data from DXFeed, clients must convert symbols into a format that meets DXFeed's requirements. For convenience, we provide these symbols via a field called streamer-symbol. You can find it in the http response body when fetching instrument data. For example, for subscribing to market events for a futures contract, you would hit the GET /instruments/futures endpoint:
+
+RESPONSE
+// GET /instruments/futures
+{
+    "data": {
+        "items": [
+            {
+                "symbol": "/6AM3",
+                "streamer-exchange-code": "XCME",
+                "streamer-symbol": "/6AM23:XCME"
+            }
+        ]
+    }
+}
+An identical field is available for the following instruments endpoints:
+
+GET /instruments/cryptocurrencies
+`GET /instruments/equities/:symbol
+GET /instruments/futures
+GET /futures-option-chains/:product-code
+GET /option-chains/:underlying-symbol
+Connecting a websocket (example)
+DxFeed has a javascript library that makes opening a websocket connection very straight-forward. You can find the repository here. In the following example, assume we hit the GET /quote-streamer-tokens Tastytrade endpoint and got the following response:
+
+{
+    "data": {
+        "token": "myFakeDxFeedAuthToken",
+        "streamer-url": "fakestreamerurl.com",
+        "websocket-url": "https://fakestreamerurl.dxfeed.com/demo",
+        "level": "demo"
+    },
+    "context": "/quote-streamer-tokens"
+}
+We will use DxFeed's javascript library to open a connection using the token and the websocket-url.
+
+import Feed, { EventType } from '@dxfeed/api'
+const feed = new Feed()
+// "token" from the response above
+feed.setAuthToken('myFakeDxFeedAuthToken')
+// "websocket-url" from the response above
+// Note: You need to append '/cometd' to the end
+feed.connect('https://fakestreamerurl.dxfeed.com/demo/cometd')
+
+feed.subscribe(
+  [EventType.Greeks, EventType.Profile, EventType.Quote, EventType.Summary, EventType.Trade],
+  ['AAPL', '.AAPL220617P150'],
+  event => console.log(event)
+)
+Please note: the EventType.Greeks data only applies to options, not equities or outright futures. In the above example, we would only receive greeks event messages for the .AAPL220617P150 equity option symbol.
+
+See DXFeed's resources for further examples/documentation:
+
+https://www.dxfeed.com/specifications-and-guides/
+
+https://tools.dxfeed.com/webservice/rest-demo.jsp
+
+Position Retrieval (View all Current Account Positions)
+GET /accounts/:account-number/positions
+RESPONSE
+{
+    "data": {
+        "items": [
+            {
+                "account-number": "5WT0001",
+                "symbol": "DE",
+                "instrument-type": "Equity",
+                "underlying-symbol": "DE",
+                "quantity": 5,
+                "quantity-direction": "Short",
+                // other attributes omitted
+            },
+            {
+                "account-number": "5WT0001",
+                "symbol": "REAL",
+                "instrument-type": "Equity",
+                "underlying-symbol": "REAL",
+                "quantity": 3,
+                "quantity-direction": "Long",
+                // other attributes omitted
+            },
+            {
+                "account-number": "5WT0001",
+                "symbol": "AAPL",
+                "instrument-type": "Equity",
+                "underlying-symbol": "AAPL",
+                "quantity": 10,
+                "quantity-direction": "Long",
+                // other attributes omitted
+            }
+        ]
+    },
+    "api-version": "v1",
+    "context": "/accounts/5WT0001/positions"
+}
+Equity option positions will also include an expires-at timestamp.
+
+For P/L calculations, you should rely on the live quote data as much as possible to ensure up-to-date calculations (see Streaming Market Data). mark and mark-price above are deprecated and should not be used in profit/loss calculations. Instead, you can use price from the DxFeed Trade market event, or bidPrice & askPrice from the DxFeed Quote market event.
+
+Balance retrieval
+GET /accounts/:account-number/balances
+RESPONSE
+{
+    "data": {
+        "account-number": "5WT0001",
+        "cash-balance": "194008.702",
+        "long-equity-value": "4882.39",
+        "short-equity-value": "823.8",
+        "long-derivative-value": "0.0",
+        "short-derivative-value": "0.0",
+        // other attributes omitted
+    },
+    "api-version": "v1",
+    "context": "/accounts/5WT0001/balances"
+}
+Watchlists
+Public Watchlists
+GET /public-watchlists
+Returns a list of public watchlists
+
+RESPONSE
+{
+    "data": {
+        "items": [
+            {
+                "name": "Upcoming Earnings",
+                "watchlist-entries": [
+                    {
+                        "symbol": "STZ",
+                        "instrument-type": "Equity"
+                    },
+                    {
+                        "symbol": "MKC",
+                        "instrument-type": "Equity"
+                    }
+                ],
+            },
+            {
+                "name": "Liquid ETFs",
+                "watchlist-entries": [
+                    {
+                        "symbol": "DIA",
+                        "instrument-type": "Equity"
+                    },
+                    {
+                        "symbol": "EEM",
+                        "instrument-type": "Equity"
+                    }
+                ],
+            }
+        ]
+    },
+    "api-version": "v1",
+    "context": "/public-watchlists"
+}
+Instruments
+Open Api Spec
+
+Equity Options
+Equity option chains are retrieved via GET /option-chains/{underlying_symbol}/nested. This returns a list of underlyings with their expirations and strikes nested inside:
+
+RESPONSE
+{
+  "data": {
+    "items": [
+      {
+        "underlying-symbol": "AAPL",
+        "root-symbol": "AAPL",
+        "option-chain-type": "Standard",
+        "shares-per-contract": 100,
+        "expirations": [
+          {
+            "expiration-type": "Regular",
+            "expiration-date": "2022-09-16",
+            "days-to-expiration": 2,
+            "settlement-type": "PM",
+            "strikes": [
+              {
+                "strike-price": "40.0",
+                "call": "AAPL  220916C00040000",
+                "put": "AAPL  220916P00040000"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
+The call and put values are the instrument's symbol that you will use in the order-leg when submitting orders.
+
+There are other endpoints related to option chains that include more or less data, depending on your need. GET /option-chains/{underlying_symbol} returns a list of detailed data for each tradeable instrument.
+
+RESPONSE
+{
+  "data": {
+    "items": [
+      {
+        "symbol": "AAPL  220916C00040000",
+        "instrument-type": "Equity Option",
+        "active": true,
+        "strike-price": "40.0",
+        "root-symbol": "AAPL",
+        "underlying-symbol": "AAPL",
+        "expiration-date": "2022-09-16",
+        "exercise-style": "American",
+        "shares-per-contract": 100,
+        "option-type": "C",
+        "option-chain-type": "Standard",
+        "expiration-type": "Regular",
+        "settlement-type": "PM",
+        "stops-trading-at": "2022-09-16T20:00:00.000+00:00",
+        "market-time-instrument-collection": "Equity Option",
+        "days-to-expiration": 2,
+        "expires-at": "2022-09-16T20:00:00.000+00:00",
+        "is-closing-only": false
+      }
+    ]
+  }
+}
+GET /option-chains/{underlying_symbol}/compact concatenates all strike symbols across all expirations into a single array.
+
+Future Options
+To get a list of the futures and future option products that Tastytrade supports, hit GET /instruments/future-products or GET /instruments/future-option-products. These endpoints return product details, not tradeable instruments.
+
+RESPONSE
+{
+  "data": {
+    "items": [
+      {
+        "root-symbol": "/ES",
+        "code": "ES",
+        "description": "E Mini S&P",
+        "clearing-code": "ES",
+        "option-products": [...]
+      }
+    ]
+  }
+}
+There are separate option chain endpoints for futures option chains: GET /futures-option-chains/{product_code}/nested where product_code is the underlying future product's code. For example: to fetch the option chain for all /ES options, hit GET /instruments/future-option-chains/ES/nested.
+
+Order Management
+Order Statuses
+Status	Meaning	Terminal
+Received	Initial order state	No
+Routed	Order is on its way out of Tastytrade's system	No
+In Flight	Order is en route to the exchange	No
+Live	Order is live at the exchange	No
+Cancel Requested	Customer has requested to cancel the order. Awaiting a 'cancelled' message from the exchange.	No
+Replace Requested	Customer has submitted a replacement order. This order is awaiting a 'cancelled' message from the exchange.	No
+Contingent	This pertains to replacement orders. It means the replacement order is awaiting a 'cancelled' message for the order it is replacing.	No
+Filled	Order has been fully filled	Yes
+Cancelled	Order is cancelled	Yes
+Expired	Order has expired. Usually applies to an option order.	Yes
+Rejected	Order has been rejected by either Tastytrade or the exchange.	Yes
+Removed	Administrator has manually removed this order from customer account.	Yes
+Partially Removed	Administrator has manually removed part of this order from customer account.	Yes
+Tastytrade considers an order to be "working" or "live" if it is Received, Routed, In Flight, Live, Cancel Requested, or Replace Requested.
+
+A Contingent order isn't technically "working" because it has not yet been routed to the exchange. Tastytrade won't route a replacement order until the initial order has been successfully cancelled.
+
+The normal flow for a filled order would be Received -> Routed -> In Flight -> Live -> Filled. Order status updates come in real-time to websocket clients that have sent the account-subscribe message. For more info on this, see Streaming Account Data.
+
+Live Orders
+A trading client application should fetch a list of open orders when building a representation of an account's initial state. A separate endpoint exists for reviewing all order activity and is detailed in the Swagger documentation.
+
+GET /ACCOUNTS/:ACCOUNT-NUMBER/ORDERS/LIVE
+RESPONSE
+{
+    "data": {
+        "items": [
+            {
+                "id": 54758826,
+                "account-number": "5WT00001",
+                "time-in-force": "GTC",
+                "order-type": "Limit",
+                "size": 1,
+                "underlying-symbol": "QQQ",
+                "price": "3.0",
+                "price-effect": "Debit",
+                "status": "Live",
+                "cancellable": true,
+                "editable": true,
+                "edited": false,
+                "legs": [
+                    {
+                        "instrument-type": "Equity Option",
+                        "symbol": "QQQ   191115C00187000",
+                        "quantity": 1,
+                        "remaining-quantity": 1,
+                        "action": "Buy to Close",
+                        "fills": []
+                    }
+                ]
+            },
+            {
+                "id": 53959020,
+                "account-number": "5WT00001",
+                "time-in-force": "GTC",
+                "order-type": "Limit",
+                "size": 1,
+                "underlying-symbol": "SPY",
+                "price": "1.27",
+                "price-effect": "Debit",
+                "status": "Live",
+                "cancellable": true,
+                "editable": true,
+                "edited": false,
+                "legs": [
+                    {
+                        "instrument-type": "Equity Option",
+                        "symbol": "SPY   191018P00300000",
+                        "quantity": 1,
+                        "remaining-quantity": 1,
+                        "action": "Buy to Close",
+                        "fills": []
+                    },
+                    {
+                        "instrument-type": "Equity Option",
+                        "symbol": "SPY   191018P00270000",
+                        "quantity": 1,
+                        "remaining-quantity": 1,
+                        "action": "Sell to Close",
+                        "fills": []
+                    }
+                ]
+            }
+        ]
+    },
+    "api-version": "v1",
+    "context": "/accounts/5WT05758/orders/live"
+}
+Dry Run
+The Dry Run endpoint is intended to provide a way for a trading platform / client application to both verify that an order will be accepted given the current state of the customer's account and to determine the buying power impact and cost of the order (including estimated fees) without actually sending the order. Typically this would be used to populate an order confirmation / order preview interaction.
+
+The examples below hightlight a dry-run for a short call vertical, a working order for the same short call vertical, and finally a cancel / replace for that same trade.
+
+POST /accounts/:account-number/orders/dry-run
+BODY
+{
+  "time-in-force": "Day",
+  "order-type": "Limit",
+ "price": "2.0",
+  "price-effect": "Credit",
+  "legs": [
+     {
+     "instrument-type": "Equity Option",
+      "symbol": "SPY   191018C00298000",
+      "quantity": 1,
+      "action": "Buy to Open"
+     },
+     {
+     "instrument-type": "Equity Option",
+      "symbol": "SPY   191018C00295000",
+      "quantity": 1,
+      "action": "Sell to Open"
+    }
+  ]
+}
+RESPONSE
+{
+    "data": {
+        "order": {
+            "account-number": "5WT0001",
+            "time-in-force": "Day",
+            "order-type": "Limit",
+            "size": 1,
+            "underlying-symbol": "SPY",
+            "price": "2.0",
+            "price-effect": "Credit",
+            "status": "Received",
+            "cancellable": true,
+            "editable": true,
+            "edited": false,
+            "updated-at": 0,
+            "legs": [
+                {
+                    "instrument-type": "Equity Option",
+                    "symbol": "SPY   191018C00298000",
+                    "quantity": 1,
+                    "remaining-quantity": 1,
+                    "action": "Buy to Open",
+                    "fills": []
+                },
+                {
+                    "instrument-type": "Equity Option",
+                    "symbol": "SPY   191018C00295000",
+                    "quantity": 1,
+                    "remaining-quantity": 1,
+                    "action": "Sell to Open",
+                    "fills": []
+                }
+            ]
+        },
+        "warnings": [],
+        "buying-power-effect": {
+            "change-in-margin-requirement": "300.0",
+            "change-in-margin-requirement-effect": "Debit",
+            "change-in-buying-power": "102.302",
+            "change-in-buying-power-effect": "Debit",
+            "current-buying-power": "8995981.2613",
+            "current-buying-power-effect": "Credit",
+            "new-buying-power": "8995878.9593",
+            "new-buying-power-effect": "Credit",
+            "isolated-order-margin-requirement": "300.0",
+            "isolated-order-margin-requirement-effect": "Debit",
+            "is-spread": true,
+            "impact": "102.302",
+            "effect": "Debit"
+        },
+        "fee-calculation": {
+            "regulatory-fees": "0.102",
+            "regulatory-fees-effect": "Debit",
+            "clearing-fees": "0.2",
+            "clearing-fees-effect": "Debit",
+            "commission": "2.0",
+            "commission-effect": "Debit",
+            "proprietary-index-option-fees": "0.0",
+            "proprietary-index-option-fees-effect": "Debit",
+            "total-fees": "2.302",
+            "total-fees-effect": "Debit"
+        }
+    },
+    "api-version": "v1",
+    "context": "/accounts/5WT0001/orders/dry-run"
+}
+Send
+POST /accounts/:account-number/orders
+BODY
+{
+  "time-in-force": "Day",
+  "order-type": "Limit",
+ "price": "3.0",
+  "price-effect": "Credit",
+  "legs": [
+     {
+     "instrument-type": "Equity Option",
+      "symbol": "SPY   191018C00298000",
+      "quantity": 1,
+      "action": "Buy to Open"
+     },
+     {
+     "instrument-type": "Equity Option",
+      "symbol": "SPY   191018C00295000",
+      "quantity": 1,
+      "action": "Sell to Open"
+    }
+  ]
+}
+RESPONSE
+{
+    "data": {
+        "order": {
+            "id": 771043,
+            "account-number": "5WT0001",
+            "time-in-force": "Day",
+            "order-type": "Limit",
+            "size": 1,
+            "underlying-symbol": "SPY",
+            "price": "3.0",
+            "price-effect": "Credit",
+            "status": "Routed",
+            "cancellable": false,
+            "editable": false,
+            "edited": false,
+            "received-at": "2019-10-01T18:26:52.513+00:00",
+            "updated-at": 1569954412572,
+            "legs": [
+                {
+                    "instrument-type": "Equity Option",
+                    "symbol": "SPY   191018C00295000",
+                    "quantity": 1,
+                    "remaining-quantity": 1,
+                    "action": "Sell to Open",
+                    "fills": []
+                },
+                {
+                    "instrument-type": "Equity Option",
+                    "symbol": "SPY   191018C00298000",
+                    "quantity": 1,
+                    "remaining-quantity": 1,
+                    "action": "Buy to Open",
+                    "fills": []
+                }
+            ]
+        },
+        "warnings": [],
+        "buying-power-effect": {
+            "change-in-margin-requirement": "300.0",
+            "change-in-margin-requirement-effect": "Debit",
+            "change-in-buying-power": "2.302",
+            "change-in-buying-power-effect": "Debit",
+            "current-buying-power": "8995871.0475",
+            "current-buying-power-effect": "Credit",
+            "new-buying-power": "8995868.7455",
+            "new-buying-power-effect": "Credit",
+            "isolated-order-margin-requirement": "300.0",
+            "isolated-order-margin-requirement-effect": "Debit",
+            "is-spread": true,
+            "impact": "2.302",
+            "effect": "Debit"
+        },
+        "fee-calculation": {
+            "regulatory-fees": "0.102",
+            "regulatory-fees-effect": "Debit",
+            "clearing-fees": "0.2",
+            "clearing-fees-effect": "Debit",
+            "commission": "2.0",
+            "commission-effect": "Debit",
+            "proprietary-index-option-fees": "0.0",
+            "proprietary-index-option-fees-effect": "Debit",
+            "total-fees": "2.302",
+            "total-fees-effect": "Debit"
+        }
+    },
+    "api-version": "v1",
+    "context": "/accounts/5WT0001/orders/"
+}
+Cancel Replace
+When entering a cancel / replace order the following parameters are able to be changed: price, order type, and TIF.
+
+PUT /accounts/:account-number/orders/:id
+BODY
+{
+  "time-in-force": "Day",
+  "order-type": "Limit",
+ "price": "3.0",
+  "price-effect": "Credit",
+  "legs": [
+     {
+     "instrument-type": "Equity Option",
+      "symbol": "SPY   191018C00299000",
+      "quantity": 1,
+      "action": "Buy to Open"
+     },
+     {
+     "instrument-type": "Equity Option",
+      "symbol": "SPY   191018C00295000",
+      "quantity": 1,
+      "action": "Sell to Open"
+    }
+  ]
+}
+Example Order Requests
+The following are example json bodies for POST /accounts/{account_number}/orders http requests. You may hit /accounts/{account_number}/orders/dry-run to validate the order without routing to any venue.
+
+AAPL MARKET ORDER
+{
+    "time-in-force": "Day",
+    "order-type": "Market",
+    "legs": [
+      {
+          "instrument-type": "Equity",
+          "symbol": "AAPL",
+          "quantity": 1,
+          "action": "Buy to Open"
+      }
+    ]
+}
+AAPL GTC CLOSING ORDER
+{
+    "time-in-force": "GTC",
+    "price": 150.25,
+    "price-effect": "Credit",
+    "order-type": "Limit",
+    "legs": [
+      {
+          "instrument-type": "Equity",
+          "symbol": "AAPL",
+          "quantity": 1,
+          "action": "Sell to Close"
+      }
+    ]
+}
+SHORT FUTURES LIMIT ORDER
+{
+    "time-in-force": "Day",
+    "price": 90.03,
+    "price-effect": "Credit",
+    "order-type": "Limit",
+    "legs": [
+      {
+          "instrument-type": "Future",
+          "symbol": "/CLZ2",
+          "quantity": 1,
+          "action": "Sell to Open"
+      }
+    ]
+}
+AAPL BEAR CALL SPREAD
+{
+    "time-in-force": "Day",
+    "price": 0.85,
+    "price-effect": "Credit",
+    "order-type": "Limit",
+    "legs": [
+      {
+          "instrument-type": "Equity Option",
+          "symbol": "AAPL  221118C00155000",
+          "quantity": 1,
+          "action": "Sell to Open"
+      },
+      {
+          "instrument-type": "Equity Option",
+          "symbol": "AAPL  221118C00157500",
+          "quantity": 1,
+          "action": "Buy to Open"
+      }
+    ]
+}
+AAPL GTD ORDER
+{
+    "time-in-force": "GTD",
+    "gtc-date": "2022-12-01",
+    "price": 0.85,
+    "price-effect": "Credit",
+    "order-type": "Limit",
+    "legs": [
+      {
+          "instrument-type": "Equity",
+          "symbol": "AAPL",
+          "quantity": 1,
+          "action": "Buy to Open"
+      }
+    ]
+}
+STOP LIMIT ORDER
+{
+    "time-in-force": "Day",
+    "price": 150.0,
+    "price-effect": "Debit",
+    "stop-trigger": 150.0,
+    "order-type": "Limit",
+    "legs": [
+      {
+          "instrument-type": "Equity",
+          "symbol": "AAPL",
+          "quantity": 1,
+          "action": "Buy to Open"
+      }
+    ]
+}
+NOTIONAL CRYPTOCURRENCY ORDER
+{
+    "time-in-force": "GTC",
+    "order-type": "Notional Market",
+    "value": 10.0,
+    "value-effect": "Debit",
+    "legs": [
+      {
+          "instrument-type": "Cryptocurrency",
+          "symbol": "BTC/USD",
+          "action": "Buy to Open"
+      }
+    ]
+}
+Fractional Stock Orders
+Tastytrade only supports fractional trading of certain equity products. To determine if an equity can be fractionally traded, fetch the equity instrument and check the is-fractional-quantity-eligible field. For example: GET /instruments/equities?symbol[]=AAPL returns "is-fractional-quantity-eligible": true.
+
+Fractional orders must have a minimum monetary value of $5. Buy orders for 0.5 shares of a $1 stock will be rejected.
+
+FRACTIONAL QUANTITY ORDER
+{
+    "time-in-force": "Day",
+    "order-type": "Market",
+    "legs": [
+      {
+          "instrument-type": "Equity",
+          "symbol": "AAPL",
+          "quantity": 0.5,
+          "action": "Buy to Open"
+      }
+    ]
+}
+To buy $10 of AAPL stock, submit a Notional Market order with a value instead of a price. Omit the quantity field from the legs:
+
+NOTIONAL AMOUNT ORDER
+{
+    "time-in-force": "Day",
+    "order-type": "Notional Market",
+    "value": 10.0,
+    "value-effect": "Debit",
+    "legs": [
+      {
+          "instrument-type": "Equity",
+          "symbol": "AAPL",
+          "action": "Buy to Open"
+      }
+    ]
+}
+Transaction History
+All transactions impacting an accounts balances or positions are available at this endpoint.
+
+Filtering and sorting are available as documented in the API-level Swagger docs.
+
+GET /accounts/:account-number/transactions
+RESPONSE
+{
+    "data": {
+        "items": [
+            {
+                "id": 85942,
+                "account-number": "5WT0001",
+                "executed-at": "2019-09-16T14:23:11.549+00:00",
+                "transaction-date": "2019-09-16",
+                "transaction-type": "Trade",
+                "transaction-sub-type": "Buy to Open",
+                "description": "Bought 2 A @ 1.00",
+                "value": "2.0",
+                "value-effect": "Debit",
+                "regulatory-fees": "0.0",
+                "regulatory-fees-effect": "Debit",
+                "clearing-fees": "0.002",
+                "clearing-fees-effect": "Debit",
+                "net-value": "7.002",
+                "net-value-effect": "Debit",
+                "underlying-symbol": "A",
+                "instrument-type": "Equity",
+                "symbol": "A",
+                "action": "Buy to Open",
+                "commission": "5.0",
+                "commission-effect": "Debit",
+                "quantity": "2.0",
+                "price": "1.0",
+                "proprietary-index-option-fees": "0.0",
+                "proprietary-index-option-fees-effect": "Debit",
+                "is-estimated-fee": true,
+                "order-id": 759362,
+                // other attributes omitted
+            },
+            {
+                "id": 85941,
+                "account-number": "5WT0001",
+                "executed-at": "2019-09-16T14:22:43.451+00:00",
+                "transaction-date": "2019-09-16",
+                "transaction-type": "Trade",
+                "transaction-sub-type": "Buy to Open",
+                "description": "Bought 5 QQQ @ 2.00",
+                "value": "10.0",
+                "value-effect": "Debit",
+                "regulatory-fees": "0.0",
+                "regulatory-fees-effect": "Debit",
+                "clearing-fees": "0.004",
+                "clearing-fees-effect": "Debit",
+                "net-value": "15.004",
+                "net-value-effect": "Debit",
+                "underlying-symbol": "QQQ",
+                "instrument-type": "Equity",
+                "symbol": "QQQ",
+                "action": "Buy to Open",
+                "commission": "5.0",
+                "commission-effect": "Debit",
+                "quantity": "5.0",
+                "price": "2.0",
+                "proprietary-index-option-fees": "0.0",
+                "proprietary-index-option-fees-effect": "Debit",
+                "is-estimated-fee": true,
+                "order-id": 759361,
+                // other attributes omitted
+            },
+            {
+                "id": 62887,
+                "account-number": "5WT0001",
+                "executed-at": "2018-11-19T19:54:12.758+00:00",
+                "transaction-date": "2018-11-19",
+                "transaction-type": "Trade",
+                "transaction-sub-type": "Buy to Close",
+                "description": "Bought 1 /CLF9 LOF9 12/14/18 Put 56.50 @ 2.41",
+                "value": "2410.0",
+                "value-effect": "Debit",
+                "regulatory-fees": "1.52",
+                "regulatory-fees-effect": "Debit",
+                "clearing-fees": "0.3",
+                "clearing-fees-effect": "Debit",
+                "net-value": "2411.82",
+                "net-value-effect": "Debit",
+                "underlying-symbol": "/CLF9",
+                "instrument-type": "Future Option",
+                "symbol": "./CLF9 LOF9  181214P56.5",
+                "action": "Buy to Close",
+                "commission": "0.0",
+                "commission-effect": "Debit",
+                "quantity": "1.0",
+                "price": "2.41",
+                "proprietary-index-option-fees": "0.0",
+                "proprietary-index-option-fees-effect": "Debit",
+                "is-estimated-fee": true,
+                "order-id": 493987,
+                // other attributes omitted
+            }
+        ]
+    },
+    "api-version": "v1",
+    "context": "/accounts/5WT0001/transactions",
+    "pagination": {
+        "per-page": 250,
+        "page-offset": 0,
+        "item-offset": 0,
+        "total-items": 1622,
+        "total-pages": 7,
+        "current-item-count": 250,
+        "previous-link": null,
+        "next-link": null,
+        "paging-link-template": null
+    }
+}
